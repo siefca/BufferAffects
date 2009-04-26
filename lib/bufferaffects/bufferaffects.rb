@@ -44,31 +44,46 @@
 # Default instance method called to reset buffers should be
 # defined under name +reset_buffers+
 # You may also want to set up your own name by calling
-# buffers_reset_method class method. The name of your
-# buffers flushing method is passed to subclasses but
-# each subclass may redefine it.
+# buffers_reset_method class method.
 #
-# Be aware that sub-subclass
-# will still need redefinition since it's kind of one-level
-# inheritance.
-# 
 # Buffers flushing method may take none or exactly one argument.
 # If your method will take an argument then a name of calling
 # method will be passed to it as symbol.
 #
+# The name of your
+# buffers flushing method is passed to subclasses but
+# each subclass may redefine it.
+#
+# Be aware that if you have a class that is subclass of
+# a class using BufferAffects then by setting new buffers_reset_method
+# you may experience two methods being called. That may happen
+# when:
+# * your base class has different resetting method assigned
+#   than your derivative class
+# * you mark some method or attribute again using attr_affects_buffers or method_affects_buffers
+# * you will not redefine that method in subclass (despite two facts above)
+# That's because we assume that resetting method assigned to a method in superclass
+# may be needed there and it shouldn't be taken away.
+# 
 # === Inherited classes
 # 
 # This module tries to be inheritance-safe but you will have to
 # mark methods and members in subclasses if you are going
-# to redefine them. The smooth way is of course to use +super+
+# to redefine them. That will install triggers again which is needed
+# since redefining creates new code for method which overrides the code
+# altered by BufferAffects.
+# 
+# The smooth way is of course to use +super+
 # in overloaded methods so it will also do the job.
 #
 # === Caution
 #
-# This code uses Module#method_added hook. If you're going
-# to redefine that method in class using this module remember
-# to wrap and call original version or add one line to your
-# definition: +ba_check_method(name)+
+# This code uses method_added hook. If you're going
+# to redefine that special method in your class while still using
+# this module then remember to call original version or explicitly invoke
+# ba_check_method in your version of method_added:
+# 
+#     ba_check_method(name)
 # 
 # === Example
 #
@@ -98,24 +113,25 @@
 #    p obj.path
 
 module BufferAffects
+  
+    extend AttrInheritable
 
-    @@__ba_wrapped__ = {}
-    @@__ba_reset_m__ = nil
+    attr_inheritable_hash :__ba_wrapped__
+    attr_inheritable      :__ba_reset_method__
 
     # This method sets name of method that will be used to reset buffers.
-
-    def buffers_reset_method(name)
+    
+    def buffers_reset_method(name) # :doc:
       name = name.to_s.strip
       raise ArgumentError.new('method name cannot be empty') if name.empty?
       @__ba_reset_method__ = name.to_sym
-      @@__ba_reset_m__ ||= @__ba_reset_method__
     end
     private :buffers_reset_method
 
     # This method sets the marker for hook to be installed.
     # It ignores methods for which wrapper already exists.
 
-    def method_affects_buffers(*names)
+    def method_affects_buffers(*names)  # :doc:
       @__ba_methods__ ||= {}
       names.uniq!
       names.collect! { |name| name.to_sym }
@@ -128,7 +144,7 @@ module BufferAffects
     # member names and tries to wrap them into buffers
     # resetting hooks usting method_affects_buffers
     
-    def attr_affects_buffers(*names)
+    def attr_affects_buffers(*names)  # :doc:
       names.collect! { |name| :"#{name}=" }
       method_affects_buffers(*names)
     end
@@ -143,7 +159,7 @@ module BufferAffects
     #  * true - method is now processed
     # 
     # After successful wrapping method name (key) and object ID (value) pairs
-    # are added two containers: @@__ba_wrapped__ and @__ba_methods__
+    # are added two containers: @__ba_wrapped__ and @__ba_methods__
     
     def ba_methods_wrap(*names)
       names.delete_if { |name| @__ba_methods__[name] == true }      # don't handle methods being processed
@@ -151,9 +167,10 @@ module BufferAffects
                 private_instance_methods +
                 protected_instance_methods
       install_now = names.select { |name| kmethods.include?(name) } # select methods for immediate wrapping
-      install_now.delete_if do |name|                               # but don't wrap already wrapped
-        @@__ba_wrapped__.has_key?(name) &&                          # - wrapped by our class or other class
-        !@__ba_methods__.has_key?(name)                             # - not wrapped by our class
+      install_now.delete_if do |name|                               # but don't wrap already wrapped, means:
+        self.__ba_wrapped__.has_key?(name) &&                       # - wrapped by our class or other class and
+        !@__ba_methods__.has_key?(name) &&                          # - not wrapped by our class
+        self.__ba_wrapped__[name] == __ba_reset_method__            # - uses the same resetting method
       end
       
       install_later = names - install_now                           # collect undefined and wrapped methods
@@ -162,17 +179,18 @@ module BufferAffects
       install_now.each { |name| @__ba_methods__[name] = true }      # mark methods as currently processed
       installed = ba_install_hook(*install_now)                     # and install hooks for them
       install_now.each { |name| @__ba_methods__[name] = false }     # mark methods as not processed again
-      installed.each_pair do |name,id|                              # and note the object IDs of wrapped methods
-        @@__ba_wrapped__[name] = id                                 # shared container
-        @__ba_methods__[name] = id                                  # this class's container
+      installed.each_pair do |name,id|                              # and note the reset method assigned to wrapped methods
+        @__ba_wrapped__[name] = self.__ba_reset_method__            # inherited container
+        @__ba_methods__[name] = self.__ba_reset_method__            # this class's container
       end
     end
     private :ba_methods_wrap
 
     # This method checks whether method which name is given
-    # is now available and should be installed.
+    # is now available and should be installed. In most cases you won't
+    # need to use it directly.
     
-    def ba_check_method(name)
+    def ba_check_method(name) # :doc:
       name = name.to_sym
       @__ba_methods__ ||= {}
       if @__ba_methods__.has_key?(name)
@@ -187,15 +205,14 @@ module BufferAffects
     # that they are wrappers for other methods.
 
     def ba_install_hook(*names)
-      @__ba_reset_method__ ||= @@__ba_reset_m__
-      @__ba_reset_method__ ||= 'reset_buffers'
+      @__ba_reset_method__ = 'reset_buffers' if self.__ba_reset_method__.nil?
       installed = {}
       names.uniq.each do |name|
         new_method = name.to_s
         next if new_method[0..3] == '__ba'
         orig_id = instance_method(name.to_sym).object_id
         orig_method = '__ba' + orig_id.to_s + '__'
-        reset_method = @__ba_reset_method__.to_s
+        reset_method = self.__ba_reset_method__.to_s
         module_eval %{
           alias_method :#{orig_method}, :#{new_method}
           private :#{orig_method}
@@ -214,7 +231,9 @@ module BufferAffects
     end
     private :ba_install_hook
     
-    # Hook that intercepts added methods.
+    # Hook that intercepts added methods. It simply calls ba_check_method
+    # passing it a name of added method. In most cases there is no need to call it
+    # directly.
     
     def method_added(name)
       ba_check_method(name)

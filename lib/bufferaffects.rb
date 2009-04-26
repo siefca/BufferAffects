@@ -6,4 +6,6 @@
 # Copyright:: Copyright (c) 2009 Paweł Wilk
 # License::   LGPL
 
+require 'bufferaffects/attr_inheritable'
 require 'bufferaffects/bufferaffects'
+
