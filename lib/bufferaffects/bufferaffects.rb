@@ -76,6 +76,9 @@
 # The smooth way is of course to use +super+
 # in overloaded methods so it will also do the job.
 #
+# To be sure that everything will work fine try to place
+# buffers_reset_method clause before any other markers.
+#
 # === Caution
 #
 # This code uses method_added hook. If you're going
