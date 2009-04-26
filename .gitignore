@@ -15,6 +15,5 @@ ABOUT-NLS
 aclocal.m4
 configure.scan
 autoscan.log
-httpage.gem
-httpage-*.gem
+*.gem
 .DS_Store
