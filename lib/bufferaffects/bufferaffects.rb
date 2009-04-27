@@ -92,7 +92,7 @@
 #
 #    class Main
 #     
-#      extend BufferAffects
+#      include BufferAffects
 #   
 #      buffers_reset_method :reset_path_buffer
 #      attr_affects_buffers :subpart
@@ -116,8 +116,14 @@
 #    p obj.path
 
 module BufferAffects
+
+  def self.included(base) #:nodoc:
+     base.extend(ClassMethods)
+  end
   
-    extend AttrInheritable
+  module ClassMethods
+  
+    include AttrInheritable
 
     attr_inheritable_hash :__ba_wrapped__
     attr_inheritable      :__ba_reset_method__
@@ -241,6 +247,8 @@ module BufferAffects
     def method_added(name)
       ba_check_method(name)
     end
+  
+  end
     
 end
 
